@@ -8,6 +8,20 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 INSECURE_SECRET = "change-me-in-production"
 INSECURE_PASSWORD = "operator"
 
+# Подсказка выводится в журнал платформы и часто оказывается единственным, что
+# читает человек при упавшем развёртывании, — поэтому она про каждую переменную
+# отдельно, а не общая.
+REQUIRED_HINTS = {
+    "APP_SECRET_KEY": (
+        "ключ подписи токенов входа; сгенерировать: "
+        'python -c "import secrets; print(secrets.token_urlsafe(48))"'
+    ),
+    "APP_BOOTSTRAP_OPERATOR_PASSWORD": (
+        "пароль первой учётной записи оператора; не короче 8 символов, "
+        "задаётся произвольно"
+    ),
+}
+
 # Каталог со собранным фронтендом. Заполняется в образе; при локальной разработке
 # фронтенд поднимает собственный сервер, и каталога здесь нет.
 STATIC_DIR = Path(__file__).resolve().parents[1] / "static"
@@ -75,10 +89,8 @@ class Settings(BaseSettings):
 
         if missing:
             raise ValueError(
-                "Не заданы обязательные переменные окружения: "
-                + ", ".join(missing)
-                + ". Сгенерировать ключ: python -c \"import secrets; "
-                'print(secrets.token_urlsafe(48))"'
+                "Не заданы обязательные переменные окружения. "
+                + " ".join(f"{name} — {REQUIRED_HINTS[name]}." for name in missing)
             )
         return self
 

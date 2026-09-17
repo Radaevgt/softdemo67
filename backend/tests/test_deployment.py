@@ -67,16 +67,21 @@ def test_deployment_refuses_to_start_with_the_default_secret(monkeypatch):
     message = str(error.value)
     assert "APP_SECRET_KEY" in message
     assert "APP_BOOTSTRAP_OPERATOR_PASSWORD" in message
-    # Сообщение обязано подсказывать, как ключ получить.
+    # Подсказка своя у каждой переменной: ключ генерируется, пароль придумывается.
     assert "token_urlsafe" in message
+    assert "не короче 8 символов" in message
 
 
 def test_deployment_names_only_the_missing_variable(monkeypatch):
+    """Именно этот случай встретился на платформе: ключ задан, пароль забыт."""
     with pytest.raises(ValueError) as error:
         settings(monkeypatch, "postgresql://u:p@host:5432/db", secret_key="s" * 40)
 
-    assert "APP_BOOTSTRAP_OPERATOR_PASSWORD" in str(error.value)
-    assert "APP_SECRET_KEY" not in str(error.value)
+    message = str(error.value)
+    assert "APP_BOOTSTRAP_OPERATOR_PASSWORD" in message
+    assert "APP_SECRET_KEY" not in message
+    # Совет генерировать ключ здесь неуместен — не хватает пароля.
+    assert "token_urlsafe" not in message
 
 
 def test_local_sqlite_run_needs_no_secrets(monkeypatch):
