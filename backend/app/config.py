@@ -47,7 +47,10 @@ def _normalize_database_url(url: str) -> str:
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_prefix="APP_", extra="ignore")
 
-    database_url: str = "postgresql+psycopg://portal:portal@localhost:5432/portal"
+    # Без значения по умолчанию: запасной адрес вроде localhost превращает
+    # непривязанную базу в невнятное «connection refused» вместо прямого ответа,
+    # что переменная не задана.
+    database_url: str = ""
     secret_key: str = INSECURE_SECRET
     access_token_ttl_minutes: int = 12 * 60
     cors_origins: str = ""
@@ -67,6 +70,15 @@ class Settings(BaseSettings):
         # Платформы вроде Railway подставляют DATABASE_URL без префикса APP_.
         if "APP_DATABASE_URL" not in os.environ and os.environ.get("DATABASE_URL"):
             object.__setattr__(self, "database_url", os.environ["DATABASE_URL"])
+
+        if not self.database_url:
+            raise ValueError(
+                "Не задана база данных. На платформе привяжите базу переменной "
+                "DATABASE_URL (в Railway это ${{Postgres.DATABASE_URL}} и плагин "
+                "PostgreSQL в том же проекте). Для локального запуска: "
+                "APP_DATABASE_URL=sqlite:///./dev.db"
+            )
+
         object.__setattr__(self, "database_url", _normalize_database_url(self.database_url))
         return self
 

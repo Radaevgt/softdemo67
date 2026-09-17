@@ -144,3 +144,28 @@ def test_paths_cannot_escape_the_static_directory(spa, path):
     assert response.status_code in (200, 404)
     if response.status_code == 200:
         assert "Портал" in response.text
+
+
+def test_missing_database_is_named_outright(monkeypatch):
+    """Запасной адрес превращал непривязанную базу в «connection refused»
+    к 127.0.0.1 — ошибку, по которой не догадаться, что переменная не задана."""
+    for name in ("APP_DATABASE_URL", "DATABASE_URL"):
+        monkeypatch.delenv(name, raising=False)
+
+    with pytest.raises(ValueError) as error:
+        Settings(_env_file=None)
+
+    message = str(error.value)
+    assert "DATABASE_URL" in message
+    assert "Postgres.DATABASE_URL" in message
+    # Подсказка для локального запуска тоже нужна: сообщение видят оба.
+    assert "sqlite" in message
+
+
+def test_blank_database_variable_counts_as_missing(monkeypatch):
+    """Пустая переменная на платформе встречается не реже отсутствующей."""
+    monkeypatch.delenv("APP_DATABASE_URL", raising=False)
+    monkeypatch.setenv("DATABASE_URL", "")
+
+    with pytest.raises(ValueError, match="Не задана база данных"):
+        Settings(_env_file=None)
