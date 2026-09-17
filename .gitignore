@@ -1,0 +1,18 @@
+# Окружения и сборки
+.venv/
+node_modules/
+dist/
+backend/static/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.tsbuildinfo
+
+# Локальные данные и секреты
+.env
+*.db
+*.sqlite3
+
+# Сформированные протоколы не хранятся в репозитории
+Протокол-*.docx
+Протокол-*.pdf

@@ -1,0 +1,17 @@
+**/.venv
+**/node_modules
+**/dist
+**/static
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/*.db
+**/.env
+.git
+docs
+README.md
+docker-compose.yml
+backend/tests
+backend/Dockerfile
+frontend/Dockerfile
+frontend/nginx.conf

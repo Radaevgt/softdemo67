@@ -1,0 +1,12 @@
+# Конфигурация Railway. Сборка идёт по корневому Dockerfile: один сервис,
+# внутри и API, и собранный фронтенд.
+
+[build]
+builder = "dockerfile"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+healthcheckPath = "/api/health"
+healthcheckTimeout = 120
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3

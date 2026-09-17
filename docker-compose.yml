@@ -1,0 +1,36 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-portal}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-portal}
+      POSTGRES_DB: ${POSTGRES_DB:-portal}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-portal}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build: ./backend
+    environment:
+      APP_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-portal}:${POSTGRES_PASSWORD:-portal}@db:5432/${POSTGRES_DB:-portal}
+      APP_SECRET_KEY: ${APP_SECRET_KEY:?задайте APP_SECRET_KEY в .env}
+      APP_CORS_ORIGINS: ${APP_CORS_ORIGINS:-http://localhost:8080}
+      APP_BOOTSTRAP_OPERATOR_LOGIN: ${APP_BOOTSTRAP_OPERATOR_LOGIN:-operator}
+      APP_BOOTSTRAP_OPERATOR_PASSWORD: ${APP_BOOTSTRAP_OPERATOR_PASSWORD:?задайте пароль оператора в .env}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "${PORTAL_PORT:-8080}:80"
+    depends_on:
+      - backend
+
+volumes:
+  db-data:
