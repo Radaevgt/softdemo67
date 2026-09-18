@@ -213,7 +213,9 @@ def complete_dialogue(client: FakeClient, store: SessionStore) -> None:
         for raw in batch["updates"]:
             runner._dispatch(raw)
 
-        if session.step.value == "address":
+        if session.step.value == "full_name":
+            feed(message(7, "Иванова Мария Петровна", f"m{len(steps)}"))
+        elif session.step.value == "address":
             feed(message(7, "г. Бор, ул. Полевая, д. 2", f"m{len(steps)}"))
         elif session.step.value == "municipality":
             feed(message(7, "Городской округ город Бор", f"m{len(steps)}"))

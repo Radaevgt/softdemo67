@@ -75,6 +75,7 @@ class Dialog:
 def filled(kind: str = "izhs", states: tuple[str, ...] = ("ownerless",)) -> Dialog:
     """Доводит разговор до первого вопроса опроса."""
     dialog = Dialog().start().tap(Action.START)
+    dialog.send("Иванова Мария Петровна")
     dialog.send("г. Бор, ул. Полевая, д. 2")
     dialog.send("Городской округ город Бор")
     dialog.tap(Action.KIND, kind)
@@ -104,16 +105,23 @@ def test_any_text_before_the_case_shows_the_greeting():
 # --- сбор сведений ----------------------------------------------------------
 
 
-def test_case_starts_with_the_address():
+def test_case_starts_by_asking_who_is_running_the_check():
     dialog = Dialog().start().tap(Action.START)
-    assert dialog.session.step == Step.ADDRESS
+    assert dialog.session.step == Step.FULL_NAME
+    assert "фамилия, имя и отчество" in dialog.last_text
     # На первом шаге возвращаться некуда.
     assert texts.BTN_BACK not in dialog.buttons
 
 
+def test_the_full_name_is_remembered_and_the_address_comes_next():
+    dialog = Dialog().start().tap(Action.START).send("Иванова Мария Петровна")
+    assert dialog.session.full_name == "Иванова Мария Петровна"
+    assert dialog.session.step == Step.ADDRESS
+
+
 def test_states_are_multi_select_with_visible_marks():
     dialog = Dialog().start().tap(Action.START)
-    dialog.send("адрес").send("МО").tap(Action.KIND, "izhs")
+    dialog.send("Иванова М. П.").send("адрес").send("МО").tap(Action.KIND, "izhs")
 
     dialog.tap(Action.STATE, "ownerless")
     assert f"{texts.CHECKED} Бесхозяйное" in dialog.buttons
@@ -129,7 +137,7 @@ def test_states_are_multi_select_with_visible_marks():
 
 def test_done_without_a_state_does_not_advance():
     dialog = Dialog().start().tap(Action.START)
-    dialog.send("адрес").send("МО").tap(Action.KIND, "izhs")
+    dialog.send("Иванова М. П.").send("адрес").send("МО").tap(Action.KIND, "izhs")
     dialog.tap(Action.STATES_DONE)
 
     assert texts.NEED_ONE_STATE in dialog.last_text
@@ -144,11 +152,13 @@ def test_optional_fields_can_be_skipped():
 
 def test_summary_lists_everything_before_the_questionnaire():
     dialog = Dialog().start().tap(Action.START)
-    dialog.send("г. Бор, ул. Полевая, д. 2").send("Городской округ город Бор")
+    dialog.send("Иванова Мария Петровна").send("г. Бор, ул. Полевая, д. 2")
+    dialog.send("Городской округ город Бор")
     dialog.tap(Action.KIND, "izhs").tap(Action.STATE, "ownerless").tap(Action.STATES_DONE)
     dialog.tap(Action.SKIP).tap(Action.SKIP)
 
     assert dialog.session.step == Step.CONFIRM
+    assert "Иванова Мария Петровна" in dialog.last_text
     assert "г. Бор, ул. Полевая, д. 2" in dialog.last_text
     assert "ИЖС" in dialog.last_text
     assert "Бесхозяйное" in dialog.last_text
@@ -213,11 +223,11 @@ def test_back_from_the_first_question_returns_to_the_input_steps():
 
 def test_edit_returns_to_the_first_input_step():
     dialog = Dialog().start().tap(Action.START)
-    dialog.send("адрес").send("МО").tap(Action.KIND, "izhs")
+    dialog.send("Иванова М. П.").send("адрес").send("МО").tap(Action.KIND, "izhs")
     dialog.tap(Action.STATE, "ownerless").tap(Action.STATES_DONE)
     dialog.tap(Action.SKIP).tap(Action.SKIP).tap(Action.EDIT)
 
-    assert dialog.session.step == Step.ADDRESS
+    assert dialog.session.step == Step.FULL_NAME
 
 
 # --- сброс и устаревшие кнопки ----------------------------------------------
@@ -231,7 +241,7 @@ def test_restart_asks_for_confirmation_first():
 
     dialog.tap(Action.RESTART_YES)
     assert dialog.session.address is None
-    assert dialog.session.step == Step.ADDRESS
+    assert dialog.session.step == Step.FULL_NAME
 
 
 def test_declining_the_restart_returns_to_the_same_question():

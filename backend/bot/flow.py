@@ -73,8 +73,10 @@ def _ask(session: Session, out: Outcome) -> Outcome:
     token = session.rotate_token()
     first_step = session.step == INPUT_STEPS[0]
 
+    if session.step == Step.FULL_NAME:
+        return out.say(texts.ASK_FULL_NAME, keyboards.text_step(token, with_back=not first_step))
     if session.step == Step.ADDRESS:
-        return out.say(texts.ASK_ADDRESS, keyboards.text_step(token, with_back=not first_step))
+        return out.say(texts.ASK_ADDRESS, keyboards.text_step(token))
     if session.step == Step.MUNICIPALITY:
         return out.say(texts.ASK_MUNICIPALITY, keyboards.skippable(token))
     if session.step == Step.OBJECT_KIND:
@@ -100,6 +102,7 @@ def _summary(session: Session) -> str:
     lines = [
         texts.CONFIRM_TITLE,
         "",
+        f"Проверку проводит: {session.full_name or DASH}",
         f"Адрес: {session.address or DASH}",
         f"Муниципальное образование: {session.municipality or DASH}",
         f"Вид объекта: {kind}",
@@ -201,7 +204,9 @@ def _go_back(session: Session, out: Outcome) -> Outcome:
 
 def _start_case(session: Session, out: Outcome) -> Outcome:
     session.reset()
-    session.step = Step.ADDRESS
+    # Первый шаг берётся из списка, а не называется явно: иначе добавление шага
+    # в начало сдвигает все ответы на один вопрос.
+    session.step = INPUT_STEPS[0]
     return _ask(session, out)
 
 
@@ -244,6 +249,9 @@ def _handle_text(session: Session, event: Event, out: Outcome) -> Outcome:
     if not text:
         return out.say(texts.NEED_TEXT)
 
+    if session.step == Step.FULL_NAME:
+        session.full_name = text
+        return _advance(session, out)
     if session.step == Step.ADDRESS:
         session.address = text
         return _advance(session, out)

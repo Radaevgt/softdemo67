@@ -14,6 +14,7 @@ from enum import StrEnum
 
 class Step(StrEnum):
     IDLE = "idle"
+    FULL_NAME = "full_name"
     ADDRESS = "address"
     MUNICIPALITY = "municipality"
     OBJECT_KIND = "object_kind"
@@ -27,6 +28,7 @@ class Step(StrEnum):
 
 # Шаги ввода сведений в порядке прохождения — по нему работает кнопка «Назад».
 INPUT_STEPS: tuple[Step, ...] = (
+    Step.FULL_NAME,
     Step.ADDRESS,
     Step.MUNICIPALITY,
     Step.OBJECT_KIND,
@@ -45,7 +47,10 @@ def _now() -> datetime:
 class Session:
     user_id: int
     step: Step = Step.IDLE
+    # Отображаемое имя из мессенджера: годится для журнала, но не для справки —
+    # там нужны фамилия, имя и отчество, которые спрашиваются отдельно.
     user_name: str | None = None
+    full_name: str | None = None
 
     address: str | None = None
     municipality: str | None = None
@@ -74,6 +79,7 @@ class Session:
     def reset(self) -> None:
         """Сбрасывает дело, сохраняя того, с кем идёт разговор."""
         self.step = Step.IDLE
+        self.full_name = None
         self.address = None
         self.municipality = None
         self.object_kind = None

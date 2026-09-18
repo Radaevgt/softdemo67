@@ -59,7 +59,9 @@ def build_assessment(session: Session, decision: dict) -> PlainAssessment:
             cadastral_number_land=session.cadastre_land,
         ),
         decision=decision,
-        author=PlainPerson(full_name=session.user_name or "Пользователь бота"),
+        author=PlainPerson(
+            full_name=session.full_name or session.user_name or "Не указано"
+        ),
         created_at=session.started_at,
         updated_at=now,
     )
@@ -138,8 +140,6 @@ def chat_summary(session: Session, decision: dict) -> str:
             "в порядке приоритета: угроза жизни впереди оформления права."
         )
         lines.append("")
-
-    lines.append(f"Версия набора правил: {payload.get('ruleset_version')}")
 
     text = "\n".join(lines).strip()
     if len(text) > CHAT_LIMIT:
