@@ -204,3 +204,80 @@ def test_upload_without_a_url_is_reported_rather_than_crashing():
     with pytest.raises(MaxApiError) as error:
         client_with(handler).upload_file("a.pdf", b"x")
     assert error.value.code == "no.upload.url"
+
+
+# --- ошибки, найденные при живом запуске ------------------------------------
+
+
+def test_button_tap_identifies_the_person_not_the_bot():
+    """В событии о нажатии ``message`` — сообщение, отправленное ботом.
+
+    Брать собеседника из ``message.sender`` нельзя: получится идентификатор
+    самого бота, и ответ упрётся в 403 chat.denied. Именно это и случилось.
+    """
+    update = parse_update(
+        {
+            "update_type": "message_callback",
+            "callback": {
+                "callback_id": "cb-1",
+                "payload": "tok|ans|rights_obj:true",
+                "user": {"user_id": 7256433, "first_name": "Мария"},
+            },
+            "message": {
+                # Сообщение с кнопкой отправлено ботом.
+                "sender": {"user_id": 234747847, "first_name": "Бот", "is_bot": True},
+                "recipient": {"user_id": 7256433},
+                "body": {"mid": "mid-1", "text": "Вопрос 1 из 5"},
+            },
+        }
+    )
+    assert update.user_id == 7256433, "собеседник — тот, кто нажал кнопку"
+    assert update.user_name == "Мария"
+
+
+def test_incoming_message_identifies_the_sender_not_the_recipient():
+    """В личном диалоге получатель входящего сообщения — сам бот."""
+    update = parse_update(
+        {
+            "update_type": "message_created",
+            "message": {
+                "sender": {"user_id": 7256433, "first_name": "Мария"},
+                "recipient": {"user_id": 234747847},
+                "body": {"mid": "mid-2", "text": "г. Бор"},
+            },
+        }
+    )
+    assert update.user_id == 7256433
+
+
+def test_sending_to_the_bot_itself_is_refused_outright():
+    """Платформа отвечает на это 403 chat.denied — причина неочевидна из ответа."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"user_id": 234747847, "username": "bot"})
+
+    client = client_with(handler)
+    client.get_me()
+
+    with pytest.raises(ValueError, match="самому боту"):
+        client.send_message(234747847, "сам себе")
+
+
+def test_answering_a_tap_replaces_the_message_rather_than_notifying():
+    """В MAX /answers принимает message; пустое тело даёт 400 proto.payload."""
+    import json
+
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["params"] = dict(request.url.params)
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, json={})
+
+    client_with(handler).replace_message(
+        "cb-1", "Вопрос 2 из 5", keyboard=[[{"type": "callback", "text": "Да", "payload": "p"}]]
+    )
+
+    assert seen["params"] == {"callback_id": "cb-1"}
+    assert seen["body"]["message"]["text"] == "Вопрос 2 из 5"
+    assert seen["body"]["message"]["attachments"][0]["type"] == "inline_keyboard"
+    assert seen["body"] != {}, "пустое тело платформа отвергает"

@@ -23,11 +23,10 @@ DASH = "—"
 class Reply:
     """Одно исходящее действие."""
 
-    kind: str  # text | file | callback
+    kind: str  # text | file
     text: str = ""
     keyboard: list[list[dict]] | None = None
     document_format: str | None = None
-    notification: str | None = None
 
 
 @dataclass
@@ -43,13 +42,22 @@ class Event:
 @dataclass
 class Outcome:
     replies: list[Reply] = field(default_factory=list)
+    _pending_note: str | None = None
 
     def say(self, text: str, keyboard: list[list[dict]] | None = None) -> "Outcome":
+        if self._pending_note:
+            text = f"{self._pending_note}\n\n{text}"
+            self._pending_note = None
         self.replies.append(Reply(kind="text", text=text, keyboard=keyboard))
         return self
 
     def note(self, notification: str) -> "Outcome":
-        self.replies.append(Reply(kind="callback", notification=notification))
+        """Замечание к следующему сообщению.
+
+        В MAX нет всплывающего уведомления по нажатию кнопки, как в Telegram,
+        поэтому замечание становится первой строкой ответа.
+        """
+        self._pending_note = notification
         return self
 
     def file(self, document_format: str, text: str = "") -> "Outcome":

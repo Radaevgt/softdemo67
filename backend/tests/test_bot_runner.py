@@ -21,7 +21,7 @@ class FakeClient:
         self.runner = None
         self.sent: list[tuple[int, str]] = []
         self.files: list[tuple[int, str, int]] = []
-        self.answered: list[str] = []
+        self.replaced: list[tuple[str, str]] = []
         self.polls: list[int | None] = []
         self.fail_upload = False
 
@@ -43,8 +43,8 @@ class FakeClient:
         self.files.append((user_id, filename, len(content)))
         return {}
 
-    def answer_callback(self, callback_id, notification=None):
-        self.answered.append(callback_id)
+    def replace_message(self, callback_id, text, *, keyboard=None):
+        self.replaced.append((callback_id, text))
         return {}
 
 
@@ -106,14 +106,33 @@ def test_a_redelivered_event_does_not_advance_the_dialogue_twice():
     assert len(client.sent) == 1, "второй раз обработан быть не должен"
 
 
-def test_tapping_a_button_is_acknowledged_even_without_a_reply():
+def test_a_tap_replaces_the_message_instead_of_piling_up_a_new_one():
+    """Так устроен /answers в MAX, и так переписка не зарастает вопросами."""
     store = SessionStore()
     session = store.get_or_create(7, "Мария")
     payload = encode(session.step_token, Action.HELP)
     client = FakeClient([{"updates": [callback(7, payload, "cb-1")], "marker": 11}])
     run_once(client, store)
 
-    assert client.answered == ["cb-1"], "кнопка не должна остаться «крутиться»"
+    assert len(client.replaced) == 1
+    assert client.replaced[0][0] == "cb-1"
+    assert client.sent == [], "новое сообщение при этом не отправляется"
+
+
+def test_a_failed_replacement_falls_back_to_a_normal_message():
+    """Пользователь не должен остаться без ответа из-за отказа /answers."""
+    store = SessionStore()
+    session = store.get_or_create(7, "Мария")
+    payload = encode(session.step_token, Action.HELP)
+
+    class Stubborn(FakeClient):
+        def replace_message(self, callback_id, text, *, keyboard=None):
+            raise MaxApiError(400, "proto.payload", "")
+
+    client = Stubborn([{"updates": [callback(7, payload, "cb-1")], "marker": 11}])
+    run_once(client, store)
+
+    assert client.sent, "ответ должен уйти обычным сообщением"
 
 
 def test_an_update_without_an_addressee_is_skipped():
@@ -229,8 +248,12 @@ def test_the_dialogue_ends_with_a_spravka_file():
     assert filename.startswith("Справка-")
     assert size > 1000
 
-    summary = "\n".join(text for _, text in client.sent)
-    assert "Сценарий № 1" in summary
+    # Выжимка приходит заменой последнего вопроса, остальное — новыми сообщениями.
+    everything = "\n".join(
+        [text for _, text in client.sent] + [text for _, text in client.replaced]
+    )
+    assert "Сценарий № 1" in everything
+    assert "Признание права муниципальной собственности" in everything
 
 
 def test_a_failed_upload_still_tells_the_user_what_happened():

@@ -46,7 +46,8 @@ class Dialog:
 
     @property
     def notifications(self) -> list[str]:
-        return [r.notification for r in self.replies if r.kind == "callback"]
+        """В MAX нет всплывающих уведомлений — замечание идёт первой строкой."""
+        return self.texts
 
     @property
     def files(self) -> list[str]:
@@ -137,7 +138,7 @@ def test_done_without_a_state_does_not_advance():
     dialog.send("адрес").send("МО").tap(Action.KIND, "izhs")
     dialog.tap(Action.STATES_DONE)
 
-    assert texts.NEED_ONE_STATE in dialog.notifications
+    assert texts.NEED_ONE_STATE in dialog.last_text
     assert dialog.session.step == Step.STATES
 
 
@@ -255,7 +256,7 @@ def test_tapping_a_scrolled_up_button_does_not_move_the_questionnaire():
     dialog.answer("true")
 
     dialog.tap(Action.ANSWER, "rights_obj:false", token=stale)
-    assert texts.BUTTON_EXPIRED in dialog.notifications
+    assert texts.BUTTON_EXPIRED in dialog.last_text
     assert dialog.session.answers == {"rights_obj": True}
 
 

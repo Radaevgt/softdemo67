@@ -148,28 +148,39 @@ class Runner:
         )
 
     def _send(self, session: Session, outcome: Outcome, update: Update) -> None:
-        answered = False
-        for reply in outcome.replies:
-            if reply.kind == "callback":
-                if update.callback_id and not answered:
-                    self._safely(
-                        lambda r=reply: self._client.answer_callback(
-                            update.callback_id, r.notification
-                        )
-                    )
-                    answered = True
-            elif reply.kind == "text":
-                self._safely(
-                    lambda r=reply: self._client.send_message(
-                        session.user_id, r.text, keyboard=r.keyboard
-                    )
-                )
-            elif reply.kind == "file":
-                self._send_file(session, reply.document_format, reply.text)
+        """Отправляет ответы разговора.
 
-        # Нажатая кнопка должна перестать «крутиться», даже если ответа не было.
-        if update.callback_id and not answered:
-            self._safely(lambda: self._client.answer_callback(update.callback_id))
+        Первый ответ на нажатие кнопки заменяет сообщение с этой кнопкой, а не
+        добавляет новое: так работает ``/answers`` в MAX, и так переписка не
+        зарастает повторяющимися вопросами, а клавиатура мультивыбора
+        перерисовывается на месте.
+        """
+        replaced = False
+        for reply in outcome.replies:
+            if reply.kind == "file":
+                self._send_file(session, reply.document_format, reply.text)
+                continue
+
+            if update.callback_id and not replaced:
+                replaced = True
+                if self._replace(update.callback_id, reply):
+                    continue
+                # Замена не удалась — отправляем обычным сообщением, чтобы
+                # пользователь не остался без ответа.
+
+            self._safely(
+                lambda r=reply: self._client.send_message(
+                    session.user_id, r.text, keyboard=r.keyboard
+                )
+            )
+
+    def _replace(self, callback_id: str, reply) -> bool:
+        try:
+            self._client.replace_message(callback_id, reply.text, keyboard=reply.keyboard)
+            return True
+        except Exception:
+            logger.warning("Не удалось заменить сообщение, отправляем новым", exc_info=True)
+            return False
 
     def _send_file(self, session: Session, document_format: str, caption: str) -> None:
         if not session.decision:

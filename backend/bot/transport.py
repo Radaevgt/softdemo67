@@ -64,21 +64,29 @@ def _first(source: dict, *names: str) -> Any:
 
 
 def parse_update(raw: dict) -> Update:
-    """Разбирает событие, не полагаясь на единственную форму ответа.
+    """Разбирает событие и, главное, находит собеседника.
 
-    Поля адресата и текста лежат на разной глубине у ``message_created`` и
-    ``message_callback``, поэтому ищем по нескольким известным путям.
+    Тонкость, стоившая отладки: в событии о нажатии кнопки ``message`` — это
+    сообщение, **на котором** была кнопка, то есть отправленное ботом. Брать
+    собеседника оттуда нельзя: получится идентификатор самого бота, и попытка
+    ответить упрётся в ``403 chat.denied``. Нажавшего кнопку хранит ``callback.user``.
+
+    По той же причине не годится ``message.recipient``: в личном диалоге получатель
+    входящего сообщения — бот.
     """
     message = raw.get("message") or {}
     callback = raw.get("callback") or {}
     body = message.get("body") or {}
-    recipient = message.get("recipient") or {}
-    sender = _first(message, "sender") or callback.get("user") or raw.get("user") or {}
 
-    user_id = _first(raw, "user_id") or sender.get("user_id") or recipient.get("user_id")
+    if callback:
+        person = callback.get("user") or raw.get("user") or {}
+    else:
+        person = message.get("sender") or raw.get("user") or {}
 
-    name_parts = [sender.get("first_name"), sender.get("last_name")]
-    user_name = " ".join(part for part in name_parts if part) or sender.get("name")
+    user_id = person.get("user_id") or _first(raw, "user_id")
+
+    name_parts = [person.get("first_name"), person.get("last_name")]
+    user_name = " ".join(part for part in name_parts if part) or person.get("name")
 
     return Update(
         update_type=raw.get("update_type", ""),
@@ -106,6 +114,10 @@ class MaxClient:
         self._token = token
         self._last_send = 0.0
         self._timeout = timeout
+        # Заполняется из /me. Нужен, чтобы поймать попытку написать самому себе:
+        # платформа отвечает на это 403 chat.denied, и без явной проверки причина
+        # выглядит как отказ доступа, а не как ошибка разбора события.
+        self.bot_user_id: int | None = None
         # В тестах транспорт подменён, и настоящий контекст TLS не нужен —
         # собирать его там значило бы читать файл сертификата без надобности.
         self._verify = build_ssl_context() if transport is None else True
@@ -152,7 +164,10 @@ class MaxClient:
     # --- методы платформы ---------------------------------------------------
 
     def get_me(self) -> dict:
-        return self._request("GET", "/me")
+        me = self._request("GET", "/me")
+        if me.get("user_id") is not None:
+            self.bot_user_id = int(me["user_id"])
+        return me
 
     def get_updates(self, marker: int | None, *, limit: int, timeout: int) -> dict:
         params: dict[str, Any] = {"limit": limit, "timeout": timeout}
@@ -169,6 +184,12 @@ class MaxClient:
         attachments: list[dict] | None = None,
     ) -> dict:
         """Сообщение в личный диалог. Адресат — ``user_id``, не ``chat_id``."""
+        if self.bot_user_id is not None and user_id == self.bot_user_id:
+            raise ValueError(
+                "Попытка отправить сообщение самому боту: событие разобрано неверно, "
+                "собеседник потерян"
+            )
+
         payload: dict[str, Any] = {"text": text[:MAX_TEXT_LENGTH]}
 
         parts = list(attachments or [])
@@ -180,11 +201,32 @@ class MaxClient:
         self._throttle()
         return self._request("POST", "/messages", params={"user_id": user_id}, json=payload)
 
-    def answer_callback(self, callback_id: str, notification: str | None = None) -> dict:
-        """Снимает у нажатой кнопки состояние ожидания."""
-        body = {"notification": notification} if notification else {}
+    def replace_message(
+        self,
+        callback_id: str,
+        text: str,
+        *,
+        keyboard: list[list[dict]] | None = None,
+    ) -> dict:
+        """Заменяет сообщение, на котором нажали кнопку.
+
+        ``/answers`` требует ровно одно из двух полей — проверено вживую, платформа
+        так и отвечает на пустое тело:
+        ``400 proto.payload: Invalid request. `message` or `notification```.
+
+        ``notification`` (всплывающая подсказка, как в Telegram) в документации не
+        описан, но поддерживается. Здесь выбрана замена сообщения: она заодно
+        перерисовывает клавиатуру мультивыбора и не засоряет переписку
+        повторяющимися вопросами.
+        """
+        message: dict[str, Any] = {"text": text[:MAX_TEXT_LENGTH]}
+        if keyboard:
+            message["attachments"] = [
+                {"type": "inline_keyboard", "payload": {"buttons": keyboard}}
+            ]
+        self._throttle()
         return self._request(
-            "POST", "/answers", params={"callback_id": callback_id}, json=body
+            "POST", "/answers", params={"callback_id": callback_id}, json={"message": message}
         )
 
     def upload_file(self, filename: str, content: bytes) -> str:
