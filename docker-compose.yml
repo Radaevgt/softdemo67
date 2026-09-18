@@ -32,5 +32,14 @@ services:
     depends_on:
       - backend
 
+  bot:
+    # Тот же образ, другая команда. Базы у бота нет — depends_on: db не нужен.
+    build: .
+    command: python -m bot
+    environment:
+      BOT_MAX_TOKEN: ${BOT_MAX_TOKEN:?задайте BOT_MAX_TOKEN в .env}
+      BOT_LOG_LEVEL: ${BOT_LOG_LEVEL:-INFO}
+    restart: unless-stopped
+
 volumes:
   db-data:

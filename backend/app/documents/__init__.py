@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ..models import Assessment
 from . import builder, docx_writer, fonts, pdf_writer
+from .source import AssessmentLike
 
 DOCX = "docx"
 PDF = "pdf"
@@ -24,21 +24,31 @@ class RenderedDocument:
     content: bytes
 
 
-def _filename(assessment: Assessment, extension: str) -> str:
+def _filename(assessment: AssessmentLike, extension: str, prefix: str) -> str:
     number = str(assessment.id).split("-")[0].upper()
-    return f"Протокол-{number}.{extension}"
+    return f"{prefix}-{number}.{extension}"
 
 
-def render(assessment: Assessment, document_format: str) -> RenderedDocument:
-    """Формирует протокол. Содержание берётся из снимка решения, не из текущих правил."""
+def render(
+    assessment: AssessmentLike,
+    document_format: str,
+    *,
+    title: str = builder.TITLE,
+    filename_prefix: str = "Протокол",
+) -> RenderedDocument:
+    """Формирует протокол. Содержание берётся из снимка решения, не из текущих правил.
+
+    ``title`` и ``filename_prefix`` позволяют выдать тот же документ как справку,
+    не заводя второй построитель.
+    """
     if document_format not in FORMATS:
         raise ValueError(f"неизвестный формат: {document_format}")
 
-    layout = builder.build(assessment)
+    layout = builder.build(assessment, title=title)
     writer = docx_writer if document_format == DOCX else pdf_writer
     return RenderedDocument(
         format=document_format,
-        filename=_filename(assessment, document_format),
+        filename=_filename(assessment, document_format, filename_prefix),
         content=writer.render(layout),
     )
 

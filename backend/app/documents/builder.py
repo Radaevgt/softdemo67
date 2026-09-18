@@ -9,8 +9,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from ..enums import LABELS, ObjectKind, ObjectState
-from ..models import Assessment
 from .layout import Document, Paragraph, Section, Step, Steps, Table
+from .source import AssessmentLike
 
 TITLE = "ПРОТОКОЛ ОПРЕДЕЛЕНИЯ СПОСОБА РАБОТЫ С НЕИСПОЛЬЗУЕМЫМ ОБЪЕКТОМ"
 DASH = "—"
@@ -190,7 +190,7 @@ def _procedure_section(decision: dict) -> Section:
     return Section("4. Порядок действий", blocks)
 
 
-def _provenance_section(assessment: Assessment, decision: dict) -> Section:
+def _provenance_section(assessment: AssessmentLike, decision: dict) -> Section:
     rows = [
         ["Проверку выполнил", _person(assessment.author)],
         ["Дата начала проверки", _moment(assessment.created_at)],
@@ -214,8 +214,12 @@ def _provenance_section(assessment: Assessment, decision: dict) -> Section:
     return Section("5. Сведения о проведении проверки", blocks)
 
 
-def build(assessment: Assessment) -> Document:
-    """Собирает протокол. Требует рассчитанного решения."""
+def build(assessment: AssessmentLike, *, title: str = TITLE) -> Document:
+    """Собирает протокол. Требует рассчитанного решения.
+
+    ``title`` позволяет тому же построителю выдать справку под другим
+    заголовком, не расходясь с протоколом по содержанию.
+    """
     decision = assessment.decision
     if not decision:
         raise ValueError("Решение не рассчитано — протокол формировать не из чего")
@@ -223,7 +227,7 @@ def build(assessment: Assessment) -> Document:
     case = assessment.case
     number = str(assessment.id).split("-")[0].upper()
     document = Document(
-        title=TITLE,
+        title=title,
         subtitle=f"№ {number} от {_day(assessment.created_at)} · {case.municipality.name}",
         sections=[
             _object_section(case),
