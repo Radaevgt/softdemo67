@@ -274,7 +274,7 @@ def _handle_tap(session: Session, event: Event, out: Outcome) -> Outcome:
 
     if tap.action == Action.HELP:
         token = session.rotate_token()
-        return out.say(texts.HELP, keyboards.greeting(token))
+        return out.say(texts.help_text(), keyboards.greeting(token))
 
     if tap.action in (Action.START, Action.RESTART_YES):
         return _start_case(session, out)

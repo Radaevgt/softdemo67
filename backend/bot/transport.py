@@ -28,6 +28,16 @@ MAX_TEXT_LENGTH = 4000
 # секунду в один диалог. Держимся заметно ниже потолка.
 MIN_SECONDS_BETWEEN_SENDS = 0.5
 
+# Отказы с кодом 4xx, которые на самом деле временные — проверено на живом боте:
+#
+# * attachment.not.ready — платформа ещё обрабатывает только что залитый файл;
+# * chat.denied — диалог не успел появиться сразу после открытия бота: первые
+#   одна-две отправки отвергаются, следующая проходит.
+TRANSIENT_CODES = frozenset({"attachment.not.ready", "chat.denied"})
+
+# Пауза перед повтором. Последняя попытка — без паузы после неё.
+RETRY_DELAYS = (0.7, 1.5, 3.0, 5.0)
+
 
 class MaxApiError(RuntimeError):
     def __init__(self, status: int, code: str | None, body: str) -> None:
@@ -118,6 +128,8 @@ class MaxClient:
         # платформа отвечает на это 403 chat.denied, и без явной проверки причина
         # выглядит как отказ доступа, а не как ошибка разбора события.
         self.bot_user_id: int | None = None
+        # Отдельным полем, чтобы тесты не ждали по-настоящему.
+        self._sleep = time.sleep
         # В тестах транспорт подменён, и настоящий контекст TLS не нужен —
         # собирать его там значило бы читать файл сертификата без надобности.
         self._verify = build_ssl_context() if transport is None else True
@@ -154,6 +166,22 @@ class MaxClient:
                 pass
             raise MaxApiError(response.status_code, code, response.text)
         return response.json() if response.content else {}
+
+    def _retrying(self, action: Any) -> dict:
+        """Повторяет действие, если платформа отказала временно.
+
+        Такие отказы приходят с кодом 400 и 403, поэтому обычная проверка
+        «повторять только 429 и 5xx» их не ловит — различает именно код ошибки.
+        """
+        for delay in (*RETRY_DELAYS, None):
+            try:
+                return action()
+            except MaxApiError as error:
+                if delay is None or error.code not in TRANSIENT_CODES:
+                    raise
+                logger.info("Отказ %s, повтор через %.1f с", error.code, delay)
+                self._sleep(delay)
+        raise AssertionError("недостижимо")
 
     def _throttle(self) -> None:
         elapsed = time.monotonic() - self._last_send
@@ -199,7 +227,11 @@ class MaxClient:
             payload["attachments"] = parts
 
         self._throttle()
-        return self._request("POST", "/messages", params={"user_id": user_id}, json=payload)
+        return self._retrying(
+            lambda: self._request(
+                "POST", "/messages", params={"user_id": user_id}, json=payload
+            )
+        )
 
     def replace_message(
         self,
@@ -260,6 +292,12 @@ class MaxClient:
         return token
 
     def send_file(self, user_id: int, filename: str, content: bytes, *, text: str = "") -> dict:
+        """Отправляет файл вложением.
+
+        Между загрузкой и отправкой платформе нужно время на обработку: без
+        паузы приходит ``400 attachment.not.ready``. Повтор берёт на себя
+        :meth:`_retrying`.
+        """
         token = self.upload_file(filename, content)
         return self.send_message(
             user_id, text, attachments=[{"type": "file", "payload": {"token": token}}]

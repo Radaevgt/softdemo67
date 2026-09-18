@@ -281,3 +281,82 @@ def test_answering_a_tap_replaces_the_message_rather_than_notifying():
     assert seen["body"]["message"]["text"] == "Вопрос 2 из 5"
     assert seen["body"]["message"]["attachments"][0]["type"] == "inline_keyboard"
     assert seen["body"] != {}, "пустое тело платформа отвергает"
+
+
+# --- временные отказы с кодом 4xx -------------------------------------------
+
+
+def transient_then_ok(code: str, failures: int):
+    """Обработчик, который отказывает заданное число раз, потом отвечает успехом."""
+    state = {"left": failures}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/uploads":
+            return httpx.Response(200, json={"url": "https://fu.oneme.ru/api/upload.do", "token": "t"})
+        if request.url.path == "/api/upload.do":
+            return httpx.Response(200, json={"token": "t"})
+        if state["left"] > 0:
+            state["left"] -= 1
+            return httpx.Response(400, json={"code": code})
+        return httpx.Response(200, json={"ok": True})
+
+    return handler, state
+
+
+def no_wait(client: MaxClient) -> list[float]:
+    """Убирает настоящие паузы и записывает, сколько бот собирался ждать."""
+    waited: list[float] = []
+    client._sleep = waited.append
+    return waited
+
+
+def test_a_file_is_resent_until_the_platform_finishes_processing_it():
+    """Сразу после загрузки платформа отвечает 400 attachment.not.ready."""
+    handler, state = transient_then_ok("attachment.not.ready", failures=2)
+    client = client_with(handler)
+    waited = no_wait(client)
+
+    result = client.send_file(1, "Справка-AB.pdf", b"%PDF-1.4", text="держите")
+
+    assert result == {"ok": True}
+    assert state["left"] == 0
+    assert len(waited) == 2, "две неудачи — две паузы"
+    assert waited == sorted(waited), "паузы нарастают"
+
+
+def test_the_first_message_is_retried_while_the_dialog_is_not_ready_yet():
+    """Сразу после открытия бота первые отправки отвергаются 403 chat.denied."""
+    handler, _ = transient_then_ok("chat.denied", failures=2)
+    client = client_with(handler)
+    no_wait(client)
+
+    assert client.send_message(1, "Здравствуйте") == {"ok": True}
+
+
+def test_a_permanent_refusal_is_not_retried():
+    """Повторять «нет такого чата» бессмысленно — это не временный отказ."""
+    calls = {"count": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["count"] += 1
+        return httpx.Response(404, json={"code": "chat.not.found"})
+
+    client = client_with(handler)
+    no_wait(client)
+
+    with pytest.raises(MaxApiError):
+        client.send_message(1, "текст")
+    assert calls["count"] == 1
+
+
+def test_a_stubbornly_unready_attachment_eventually_gives_up():
+    """Бесконечно ждать нельзя: пользователю надо сказать, что файл не дошёл."""
+    handler, _ = transient_then_ok("attachment.not.ready", failures=99)
+    client = client_with(handler)
+    waited = no_wait(client)
+
+    with pytest.raises(MaxApiError) as error:
+        client.send_file(1, "a.pdf", b"x")
+
+    assert error.value.code == "attachment.not.ready"
+    assert len(waited) == 4, "попытки не бесконечны"

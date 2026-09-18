@@ -101,12 +101,6 @@ def test_any_text_before_the_case_shows_the_greeting():
     assert texts.BTN_START in dialog.buttons
 
 
-def test_help_keeps_the_start_button():
-    dialog = Dialog().start().tap(Action.HELP)
-    assert "обследовании" in dialog.last_text
-    assert texts.BTN_START in dialog.buttons
-
-
 # --- сбор сведений ----------------------------------------------------------
 
 
@@ -328,3 +322,39 @@ def test_questionnaire_terminates_for_every_object_kind(kind):
         pytest.fail("опрос не завершился")
 
     assert dialog.files, f"для {kind} справка не сформирована"
+
+
+# --- инструкция -------------------------------------------------------------
+
+
+def test_instruction_covers_the_whole_path():
+    from bot.texts import help_text
+    from bot.transport import MAX_TEXT_LENGTH
+
+    text = help_text()
+
+    assert len(text) <= MAX_TEXT_LENGTH, f"инструкция {len(text)} символов"
+    for heading in ("КАК ПОЛЬЗОВАТЬСЯ", "ШАГ 1", "ШАГ 2", "ШАГ 3", "ЕСЛИ СЦЕНАРИЯ НЕТ", "КНОПКИ"):
+        assert heading in text, f"нет раздела «{heading}»"
+
+    # Что подготовить заранее и чем закончится.
+    assert "акт обследования" in text
+    assert "нигде не сохраняется" in text
+
+
+def test_instruction_lists_every_question_with_its_source():
+    """Перечень собирается из самого опроса — разойтись с вопросами он не может."""
+    from app.engine.attributes import ATTRIBUTES
+    from bot.texts import help_text
+
+    text = help_text()
+    for attribute in ATTRIBUTES:
+        assert attribute.label in text, f"нет вопроса «{attribute.label}»"
+        # Источник сведений — самое ценное в инструкции.
+        assert attribute.source_hint[:24].lower() in text.lower()
+
+
+def test_help_button_shows_the_instruction():
+    dialog = Dialog().start().tap(Action.HELP)
+    assert "КАК ПОЛЬЗОВАТЬСЯ" in dialog.last_text
+    assert texts.BTN_START in dialog.buttons, "после инструкции можно сразу завести дело"
